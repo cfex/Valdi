@@ -21,6 +21,7 @@ import {
 import { wrapInColor } from '../utils/logUtils';
 import { toPascalCase } from '../utils/stringUtils';
 import { getAllProjectSyncTargets, runProjectSync } from './projectsync';
+import { resolveLatestReleaseRef } from '../utils/githubUtils';
 
 interface CommandParameters {
   confirmBootstrap: boolean;
@@ -50,14 +51,13 @@ const ALL_APPLICATION_TEMPLATES: readonly ApplicationTemplate[] = [
   },
 ];
 
+const VALDI_GIT_URL = 'https://github.com/Snapchat/Valdi';
+
 const DEFAULT_VALDI_IMPORT = `
-git_repository(
+http_archive(
     name = "valdi",
-    branch = "main",
-    patch_cmds = [
-        "git lfs pull",
-    ],
-    remote = "git@github.com:Snapchat/Valdi.git",
+    strip_prefix = "Valdi-{{VALDI_RELEASE_TAG}}",
+    url = "${VALDI_GIT_URL}/archive/{{VALDI_RELEASE_REF}}.tar.gz",
 )`;
 
 const LOCAL_VALDI_IMPORT_TEMPLATE = `
@@ -116,13 +116,17 @@ async function getProjectName(argv: ArgumentsResolver<CommandParameters>): Promi
   });
 }
 
-function getValdiImport(argv: ArgumentsResolver<CommandParameters>): string {
+function getValdiImport(argv: ArgumentsResolver<CommandParameters>, valdiReleaseRef: string): string {
   const valdiImport = argv.getArgument('valdiImport');
   if (valdiImport) {
     return processReplacements(LOCAL_VALDI_IMPORT_TEMPLATE, { PATH: valdiImport });
+  } else {
+    const valdiReleaseTag = valdiReleaseRef.split('/').pop()!;
+    return processReplacements(DEFAULT_VALDI_IMPORT, {
+      VALDI_RELEASE_REF: valdiReleaseRef,
+      VALDI_RELEASE_TAG: valdiReleaseTag,
+    });
   }
-
-  return DEFAULT_VALDI_IMPORT;
 }
 
 // Create files from templates
@@ -201,7 +205,9 @@ async function valdiBootstrap(argv: ArgumentsResolver<CommandParameters>) {
     throw new CliError('Project name cannot be empty.');
   }
 
-  const valdiImport = getValdiImport(argv);
+  const valdiCommitHash = await resolveLatestReleaseRef(`${VALDI_GIT_URL}.git`);
+
+  const valdiImport = getValdiImport(argv, valdiCommitHash);
 
   // Creating basic config files and Hello World application
   console.log(wrapInColor('Initializing config files...', ANSI_COLORS.BLUE_COLOR));
